@@ -1,5 +1,12 @@
 # zmqprototype
-Prototype code for cross platform zmq rep-req render node
+[ALPHA CODE] My learning project to prototype a cross platform zmq rep-req render node
+
+- This is the code before integration with bella_engine_sdk
+
+server starts in pubkey server mode, allowing one client to grab the pubkey
+-   keypairs are generated on every start
+- requires port 5555, 5556, 5557
+client 
 
 ###Build 
 
@@ -33,6 +40,11 @@ g++ server.cpp -o server -lzmq -Wl,-rpath,.
 ```
 g++ -std=c++11 server.cpp -o server -I../libzmq/include -I../cppzmq -L../libzmq/build/lib -lzmq -Wl,-rpath,. 
 g++ -std=c++11 server.cpp -o server -I../libzmq/include -I../cppzmq -L../libzmq/build/lib -lzmq -Wl,-rpath,. 
+
+cl /std:c++17 client.cpp -Fe:client.exe -Ic:\Users\cupcake\github\vcpkg\installed\x64-windows\include\ /link c:\Users\cupcake\github\vcpkg\installed\x64-windows\lib\libzmq-mt-4_3_5.lib
+
+cl /std:c++17 server.cpp -Fe:server.exe -Ic:\Users\cupcake\github\vcpkg\installed\x64-windows\include\ /link c:\Users\cupcake\github\vcpkg\installed\x64-windows\lib\libzmq-mt-4_3_5.lib
+
 ```
 
 
