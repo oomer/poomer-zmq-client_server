@@ -14,80 +14,185 @@
 #include <condition_variable>
 #include <mutex>
 
-// Atomic variable to store the counter value
-std::atomic<int> counter(0);
 std::atomic<bool> heartbeat_state (true);
-// Condition variable to signal the counter thread
-std::condition_variable cv;
-// Mutex to protect shared data
-std::mutex mtx;
-// Flag to indicate if the counter should reset
-std::atomic<bool> shouldReset(false);
+std::atomic<bool> connection_state (false);
+std::atomic<bool> abort_state (false);
+
+bool ends_with_suffix(const std::string& str, const std::string& suffix) {
+    if (str.length() >= 4) {
+        return str.substr(str.length() - 4) == suffix;
+    }
+    return false;
+}
 
 void command_thread(std::string server_pkey, std::string client_pkey, std::string client_skey) {
-    const size_t chunk_size = 32768;
+    const size_t chunk_size = 65536;
     zmq::context_t ctx;
     zmq::socket_t command_sock (ctx, zmq::socket_type::req);
-    command_sock.set(zmq::sockopt::sndtimeo, 10000);
-    command_sock.set(zmq::sockopt::rcvtimeo, 10000);
+    //command_sock.set(zmq::sockopt::sndtimeo, 10000);
+    //command_sock.set(zmq::sockopt::rcvtimeo, 10000);
     command_sock.set(zmq::sockopt::curve_serverkey, server_pkey);
     command_sock.set(zmq::sockopt::curve_publickey, client_pkey);
     command_sock.set(zmq::sockopt::curve_secretkey, client_skey);
     command_sock.set(zmq::sockopt::linger, 1); // Close immediately on disconnect
     command_sock.connect("tcp://localhost:5556");
-
+    
+    std::string input;
     while (true) {
-        std::string input;
-        std::getline(std::cin, input); 
-        zmq::message_t msg_command (input);
-        command_sock.send(msg_command, zmq::send_flags::none);
+        if(abort_state.load()==true) {
+            break;
+        }
+        std::getline(std::cin, input);
+        std::stringstream ss(input);
+        std::string arg;
+        std::vector<std::string> args;
+        while (ss >> arg) {
+            args.push_back(arg);
+        }
+
+        // Sanity checks on input before sending to server
+        int num_args = args.size();
+        std::string command;
+        if (num_args > 0) {
+            command = args[0];
+            if ( command == "send") {
+                if(num_args == 1) {
+                    std::cout << "Please provide a .bsz file" << std::endl;
+                    continue;
+                }
+                if(!ends_with_suffix(args[1],"bsz")) {
+                    std::cout << "Only .bsz files can be sent" << std::endl;
+                    continue;
+                }
+                std::cout << "Sending:" << args[1] << std::endl;
+            } else if (command == "get") {
+                if(num_args == 1) {
+                    std::cout << "Please provide image filename" << std::endl;
+                    continue;
+                }
+            } else if (command == "exit") {
+                std::cout << "now" << std::endl;
+                break;
+            } else if (command == "render") {
+                std::string compoundArg;
+                if(num_args > 1) {
+                    for (size_t i = 1; i < args.size(); ++i) {
+                        compoundArg += args[i];
+                        if (i < args.size() - 1) {
+                            compoundArg += " "; // Add spaces between arguments
+                        }
+                    }
+                    std::cout << compoundArg << std::endl;
+                }
+            } else if (command == "hello") {
+                ;
+            } else {
+                std::cout << "unknown" << std::endl;
+                continue;
+            }        
+        }
+
+        // Sanity check input complete
+        // Push to server over encrypted socket
+        zmq::message_t server_response;
+        zmq::message_t msg_command(command);
+        //>>>ZOUT
+        command_sock.send(msg_command, zmq::send_flags::none); //SEND
         std::cout << "Sent: " << input.data() << std::endl;
 
-        zmq::message_t zmq_response;
-        command_sock.recv(zmq_response, zmq::recv_flags::none);
-        std::string response(static_cast<char*>(zmq_response.data()), zmq_response.size()-1);
-        std::cout << "Server Response: " << response << response.size() << std::endl;
+        //ZIN<<<
+        command_sock.recv(server_response, zmq::recv_flags::none); //RECV
+        std::string response_str(static_cast<char*>(server_response.data()), server_response.size()-1);
 
-        if(response=="ACK") { // Check server is ok to move on
-            std::cout << "kACKServer Response: " << response << std::endl;
-
+        if(response_str=="RDY") { // Server acknowledges readiness for multi message commands
+            std::cout << "Server Readiness: " << response_str << std::endl;
             if(input == "exit") {
                 break;
-            } else if(input == "send") {
+            // RENDER
+            } else if(command == "render") {
+                //>>>ZOUT
+                command_sock.send(zmq::message_t("render"), zmq::send_flags::none);
+                //ZIN<<<
+                command_sock.recv(server_response, zmq::recv_flags::none);
+            } else if(command == "stat") {
+                //>>>ZOUT
+                command_sock.send(zmq::message_t("stat"), zmq::send_flags::none);
+                //ZIN<<<
+                command_sock.recv(server_response, zmq::recv_flags::none);
+
+            // GET
+            } else if(command == "get") {
+                std::ofstream output_file("orange-juice.png", std::ios::binary); // Open file in binary mode
+                std::cout << "getting\n";
+                if (!output_file.is_open()) {
+                    std::cerr << "Error opening file for writing" << std::endl;
+                    std::cout << "ERR" << std::endl;
+                    continue; // Don't bother server
+                } else {
+                    while (true) {
+                        //>>>ZOUT
+                        command_sock.send(zmq::message_t("GO"), zmq::send_flags::none); 
+                        zmq::message_t recv_data;
+                        //ZIN<<<
+                        command_sock.recv(recv_data, zmq::recv_flags::none); // data transfer
+
+                        // inline messaging with data, breaks to exit loop
+                        if (recv_data.size() < 8) {
+                            std::string recv_string(static_cast<const char*>(recv_data.data()), recv_data.size()-1);
+                            //std::string recv_string = recv_data.to_string();
+                            if (recv_string == "EOF") {
+                                std::cout << "EOF" << std::endl;
+                                break; // End of file 
+                            } else if(recv_string == "ERR")  { //LIKELY ERR\0 from client, can't find file
+                                std::cout << "ERR client read ACK" << std::endl;
+                                break; // Err
+                            } else {
+                                std::cout << "HUH" << recv_string << std::endl;
+                                break;
+                            }
+                        }
+                        // by reaching this point we assume binary data ( even 8 bytes will reach here )
+                        std::cout << recv_data.size() << std::endl;
+                        output_file.write(static_cast<char*>(recv_data.data()), recv_data.size());
+                    }
+                    output_file.close();
+                }
+            // SEND
+            } else if(command == "send") {
                 std::string read_file = "./orange-juice.bsz";
                 std::cout << "sending\n";
                 std::ifstream binaryInputFile;
                 binaryInputFile.open(read_file, std::ios::binary);// for reading
                 if (!binaryInputFile.is_open()) {
                     std::cerr << "Error opening file for read" << std::endl;
-                    zmq::message_t zmsg1("ERR");
-                    command_sock.send(zmsg1, zmq::send_flags::none); 
-                    zmq::message_t z_in;
-                    command_sock.recv(z_in); // Wait for acknowledgment from server
-                    std::cout << z_in << std::endl;
+                    //>>>ZOUT
+                    command_sock.send(zmq::message_t("ERR"), zmq::send_flags::none); 
+                    ///ZIN<<<
+                    command_sock.recv(server_response, zmq::recv_flags::none);
                 } else {
-           
                     std::vector<char> send_buffer(chunk_size);
                     std::streamsize bytes_read_in_chunk;
                     while (true) {
                         binaryInputFile.read(send_buffer.data(), chunk_size); // read the file into the buffer
                         bytes_read_in_chunk = binaryInputFile.gcount(); // Actual bytes read
                         if(bytes_read_in_chunk > 0){
-                            //std::cout << bytes_read_in_chunk << std::endl;
                             zmq::message_t message(send_buffer.data(), bytes_read_in_chunk);
-                            zmq::message_t z_in;
+                            //>>>ZOUT 
                             command_sock.send(message, zmq::send_flags::none);
-                            command_sock.recv(z_in); // Wait for acknowledgment from server
+                            //ZIN<<<
+                            command_sock.recv(server_response, zmq::recv_flags::none);
                         } else {
                             break;
                         }
                     }
-                    // Send an empty message to signal end of file
-                    command_sock.send(zmq::message_t(), zmq::send_flags::none);
-                    zmq::message_t z_in;
-                    command_sock.recv(z_in); // Wait for acknowledgment from server
+                    //<<<ZOUT
+                    command_sock.send(zmq::message_t("EOF"), zmq::send_flags::none);
+                    //ZIN>>>
+                    command_sock.recv(server_response, zmq::recv_flags::none);
                 }
             }
+        } else {
+            std::cout << "Server response: " << response_str << std::endl;
         }
     }
     command_sock.close();
@@ -100,28 +205,31 @@ void heartbeat_thread(std::string server_pkey, std::string client_pkey, std::str
     heartbeat_sock.set(zmq::sockopt::curve_serverkey, server_pkey);
     heartbeat_sock.set(zmq::sockopt::curve_publickey, client_pkey);
     heartbeat_sock.set(zmq::sockopt::curve_secretkey, client_skey);
+    heartbeat_sock.set(zmq::sockopt::linger, 1); // Close immediately on disconnect
     heartbeat_sock.connect("tcp://localhost:5555");
     int heartbeat_count = 0;
     std::vector<zmq::pollitem_t> items = {};
     while (true) {
-        // Increment the counter every 10 milliseconds
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        //std::cout << "beat" << std::endl;
-        std::string msg_string = "BEAT" + std::to_string(heartbeat_count++);
-        zmq::message_t msg_heartbeat (msg_string);
-        heartbeat_sock.send(msg_heartbeat, zmq::send_flags::none);
+        if(abort_state.load()==true) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-
-        // Wait for response (poll for ZMQ_POLLIN)
-        zmq::pollitem_t response_item = { heartbeat_sock, 0, ZMQ_POLLIN, 0 };
-        zmq::poll(&response_item, 1, 100); // Wait for response with timeout
-        if (response_item.revents & ZMQ_POLLIN) {
-            zmq::message_t msg_response;
-            heartbeat_sock.recv(msg_response, zmq::recv_flags::none);
-            //std::cout << "Heartbeat Response: " << std::endl;
-        } else {
-            std::cout << "Bella Server is unavailable" << std::endl;
-            heartbeat_state = false;
+        if(connection_state == true) {
+            heartbeat_sock.send(zmq::message_t("ACK"), zmq::send_flags::none);
+            // Wait for response (poll for ZMQ_POLLIN)
+            zmq::pollitem_t response_item = { heartbeat_sock, 0, ZMQ_POLLIN, 0 };
+            zmq::poll(&response_item, 1, 100); // Wait for response with timeout
+            if (response_item.revents & ZMQ_POLLIN) {
+                zmq::message_t msg_response;
+                heartbeat_sock.recv(msg_response, zmq::recv_flags::none);
+                //std::cout << "Heartbeat Response: " << std::endl;
+            } else {
+                std::cout << "Bella Server is unavailable" << std::endl;
+                heartbeat_state = false;
+                connection_state = false;
+                break;
+            }
         }
     }
     heartbeat_sock.close();
@@ -139,11 +247,6 @@ std::string get_pubkey_from_srv() {
     // 0MQ after we establish our intitial encrypted socket
     zmq::context_t ctx;
     zmq::socket_t pubkey_sock(ctx, zmq::socket_type::req);
-
-    pubkey_sock.set(zmq::sockopt::sndtimeo, 10000);
-    pubkey_sock.set(zmq::sockopt::rcvtimeo, 10000);
-    pubkey_sock.set(zmq::sockopt::linger, 0); // Close immediately on disconnect
-
     pubkey_sock.connect("tcp://127.0.0.1:9555");
     zmq::message_t z_out(std::string("Bellarender123"));
 
@@ -160,6 +263,7 @@ std::string get_pubkey_from_srv() {
     pubkey_sock.close();
     ctx.close();
     std::cout << "connection successful" << std::endl;
+    connection_state = true;
     return pub_key;
 }
 
@@ -193,10 +297,17 @@ int main()
     while (true) {
         if (!heartbeat_state.load()) {
             std::cout << "Dead" << std::endl;
+            abort_state==true;
+            break;
+        }
+        if (connection_state.load() ==  false) {
+            std::cout << "Dead2" << std::endl;
+            abort_state==true;
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
+    abort_state==true;
     command_t.join();
     heartbeat_t.join();
     return 0;
