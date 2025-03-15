@@ -1,11 +1,17 @@
 # poomer-zmq-client_server
-c++ cross platform prototype zmq rep-req render node
+c++ cross platform prototype zmq rep-req client and server with encryption
 
 [ZeroMQ messaging library](https://zeromq.org)
 
 server starts in pubkey server mode, allowing one client to grab the pubkey
-- keypairs are generated on every start
+- keypairs are generated on every start creating a purely encrypted connection. 
+- Host verification and Trust on First Usage security design pattern are not incorporated. (ie .ssh/know_hosts)
 - used tcp ports 5555, 5556, 5557
+- [TODO] backport bellatui Args, requires making bella_scene_sdk a dependency
+
+# Usage
+- [TODO] Fill in
+
 
 # Build 
 
@@ -80,9 +86,9 @@ g++ -std=c++11 server.cpp -o server -I../libzmq/include -I../cppzmq -L../libzmq/
 g++ -std=c++11 client.cpp -o client -I../libzmq/include -I../cppzmq -L../libzmq/build/lib -lzmq -Wl,-rpath,. 
 cp ../libzmq/build/lib/libzmq.5.dylib .
 ```
-[TODO] wrap in a makefile, see bellatui
-[TODO] put in bin/Darwin
-[TODO] clears compile time warnings
+- [TODO] wrap in a makefile, see bellatui
+- [TODO] put in bin/Darwin
+- [TODO] clears compile time warnings
 
 ## Windows
 Install Visual Studio Community with Desktop C++
