@@ -95,8 +95,9 @@ cp ../libzmq/build/lib/libzmq.5.dylib .
 - [TODO] get rid of package manager
 
 ## Windows
-Install Visual Studio Community with Desktop C++
-open a x64 Developer Shell
+- Install Visual Studio Community 2022 
+- Add Desktop development with C++ workload
+- Launch x64 Native tools Command Prompt for VS2022
 
 ```
 mkdir workdir
