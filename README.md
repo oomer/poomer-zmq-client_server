@@ -12,7 +12,6 @@ server starts in pubkey server mode, allowing one client to grab the pubkey
 # Usage
 - [TODO] Fill in
 
-
 # Build 
 
 ```
@@ -52,7 +51,11 @@ mkdir build
 cd build
 cmake .. 
 g++ server.cpp -o server -lzmq -Wl,-rpath,.
+g++ client.cpp -o client -lzmq -Wl,-rpath,.
 ```
+- [TODO] wrap in a makefile, see bellatui
+- [TODO] put in bin/Linux
+- [TODO] get rid of package manager
 
 ## MacOS
 Install Cmake to /Applications
@@ -89,6 +92,7 @@ cp ../libzmq/build/lib/libzmq.5.dylib .
 - [TODO] wrap in a makefile, see bellatui
 - [TODO] put in bin/Darwin
 - [TODO] clears compile time warnings
+- [TODO] get rid of package manager
 
 ## Windows
 Install Visual Studio Community with Desktop C++
@@ -108,6 +112,9 @@ cd bellatui
 cl /std:c++17 client.cpp -Fe:client.exe -Ic:..\vcpkg\installed\x64-windows\include\ /link ..\vcpkg\installed\x64-windows\lib\libzmq-mt-4_3_5.lib
 cl /std:c++17 server.cpp -Fe:server.exe -Ic:..\vcpkg\installed\x64-windows\include\ /link ..\vcpkg\installed\x64-windows\lib\libzmq-mt-4_3_5.lib
 ```
+
+- [TODO] create a .vcxproj, see bellatui
+- [TODO] get rid of package manager
 
 
 
